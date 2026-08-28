@@ -22,7 +22,7 @@ library type don't get mistaken for a treatment effect.
 
 ## Requirements
 
-- R (>= 4.x)
+- R 
 - Packages: `tidyverse`, `DESeq2`, `pheatmap`, `ggplot2`, `ggrepel`,
   `RColorBrewer`, `apeglm`
 
