@@ -148,3 +148,120 @@ ggplot(data = resLFC, aes(x = log2FoldChange, y = -log10(pvalue),
   theme(text = element_text(size = 20))
 
 
+
+# 7. Biological interpretations
+## 7.1 Define gene sets
+### use all significant genes, not only the top10 genes, will be splitted by direction
+sig <- res%>%filter(!is.na(padj), padj < PADJ_THRESHOLD)
+
+up_genes <- rownames(sig[sig$log2FoldChange> 0, ])
+down_genes <- rownames(sig[sig$log2FoldChange< 0, ])
+
+
+### setting universe, make sure that every gene was actually tested (padj not NA), NOT the whole genome.
+### This is the correct background for the hypergeometric test.
+universe <- rownames(res[!is.na(res$padj), ])
+universe
+### check how many genes up and down regulated
+length(up_genes); length(down_genes)
+
+head(rownames(count_data))
+
+## 7.2 GO Enrichment process
+ego_up <- enrichGO(gene = up_genes,
+         universe = universe,
+         OrgDb = org.Dm.eg.db,
+         keyType = "FLYBASE",
+         ont = "BP",
+         pAdjustMethod = "BH",
+         pvalueCutoff = 0.05,
+         qvalueCutoff = 0.05,
+         readable = TRUE)
+
+ego_down <- enrichGO(gene = down_genes,
+                   universe = universe,
+                   OrgDb = org.Dm.eg.db,
+                   keyType = "FLYBASE",
+                   ont = "BP",
+                   pAdjustMethod = "BH",
+                   pvalueCutoff = 0.05,
+                   qvalueCutoff = 0.05,
+                   readable = TRUE)
+
+### Remove redundant parent/child terms (makes plots much cleaner)
+ego_up_s   <- clusterProfiler::simplify(ego_up,   cutoff = 0.7, by = "p.adjust")
+ego_down_s <- clusterProfiler::simplify(ego_down, cutoff = 0.7, by = "p.adjust")
+
+### export file
+write.csv(as.data.frame(ego_up_s), "GO_BP_up.csv")
+write.csv(as.data.frame(ego_down_s), "GO_BP_down.csv")
+
+## 7.3 KEGG enrichment
+map_id <- function(id){
+  bitr(id, fromType = "FLYBASE", toType = "ENTREZID", OrgDb = org.Dm.eg.db)$ENTREZID
+}
+map
+
+options(timeout = 300) ### Internet network connection improvement
+
+kegg_up <- enrichKEGG(gene = map_id(up_genes),
+           universe = map_id(universe),
+           organism = "dme",
+           keyType = "ncbi-geneid",
+           pvalueCutoff = 0.05)
+
+kegg_down <- enrichKEGG(gene = map_id(down_genes),
+                      universe = map_id(universe),
+                      organism = "dme",
+                      keyType = "ncbi-geneid",
+                      pvalueCutoff = 0.05)
+
+### Convert Entrez IDs back to gene symbols in the results
+kegg_up <- setReadable(kegg_up, OrgDb = org.Dm.eg.db, keyType = "ENTREZID")
+kegg_down <- setReadable(kegg_down, OrgDb = org.Dm.eg.db, keyType = "ENTREZID")
+kegg_down
+
+### checking why kegg_down unidentified
+kegg_down_all <- enrichKEGG(gene = map_id(down_genes), universe = map_id(universe),
+                            organism = "dme", keyType = "ncbi-geneid",
+                            pvalueCutoff = 1, qvalueCutoff = 1)
+head(as.data.frame(kegg_down_all)[, c("Description","GeneRatio","BgRatio","pvalue","p.adjust")], 10)
+
+### Export files
+write.csv(as.data.frame(kegg_up), "kegg_up.csv")
+write.csv(as.data.frame(kegg_down), "kegg_down.csv")
+
+## 7.4 visualization
+### 7.4.1 GO visualization
+dotplot(ego_up_s, showCategory = 15) + ggtitle("GO_BP: Upregulated")
+dotplot(ego_down_s, showCategory = 15) + ggtitle("GO_BP: Downregulated")
+barplot(ego_up_s,   showCategory = 15)
+barplot(ego_down_s,   showCategory = 15)
+
+### 7.4.2 KEGG visualization
+dotplot(kegg_up,   showCategory = 15) + ggtitle("KEGG: up-regulated")
+dotplot(kegg_down, showCategory = 15) + ggtitle("KEGG: down-regulated")
+
+###  7.4.3 Gene-concept network (genes colored by log2FC)
+FC <- setNames(res$log2FoldChange, rownames(res))
+cnetplot(ego_up_s, showCategory = 15, foldChange = FC)
+
+# Enrichment map: needs pairwise term similarity first
+ego_up_sim <- pairwise_termsim(ego_up_s)
+emapplot(ego_up_sim, showCategory = 20)
+
+# Side-by-side up vs down in a single plot
+cc <- compareCluster(geneClusters = list(Up = up_genes, Down = down_genes),
+               fun = "enrichGO", universe = universe,
+               OrgDb = org.Dm.eg.db, keyType = "FLYBASE",
+               ont = "BP", pvalueCutoff = 0.05)
+# remove term redundance
+cc_s <- clusterProfiler::simplify(cc, cutoff = 0.7, by = "p.adjust")
+
+dotplot(cc_s, showCategory = 6, label_format = 50, font.size = 11) +
+  theme(axis.text.y = element_text(size = 10, lineheight = 0.9))
+
+dotplot(cc, showCategory = 10) + theme(axis.text.y = element_text(size = 10),
+                                       axis.text.x = element_text(size = 12),
+                                       text = element_text(size = 10))
+
